@@ -188,7 +188,25 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
         children: [
           SizedBox(height:20),
           Expanded (
-              child: _metronomeWand()
+              child: LayoutBuilder(
+                  builder: (context,constraints) {
+                    double aspectRatio = 1.5; // height:width
+                    double width;
+                    double height;
+                    if (constraints.maxHeight>=constraints.maxWidth * aspectRatio) {
+                      // we are constrained by available width
+                      width = constraints.maxWidth;
+                      height = width * aspectRatio;
+                    }
+                    else {
+                      // we are constrained by available height
+                      height = constraints.maxHeight;
+                      width = height / aspectRatio;
+                    }
+
+                    return _wand(width,height);
+                  }
+              )
           ),
           SizedBox(height:20),
           Row(
@@ -258,27 +276,6 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
 
   }
 
-  Widget _metronomeWand () {
-    return LayoutBuilder(
-        builder: (context,constraints) {
-          double aspectRatio = 1.5; // height:width
-          double width;
-          double height;
-          if (constraints.maxHeight>=constraints.maxWidth * aspectRatio) {
-            // we are constrained by available width
-            width = constraints.maxWidth;
-            height = width * aspectRatio;
-          }
-          else {
-            // we are constrained by available height
-            height = constraints.maxHeight;
-            width = height / aspectRatio;
-          }
-
-          return _wand(width,height);
-        }
-    );
-  }
   bool _bobHitTest(double width, double height, Offset localPosition) {
     if (_metronomeState != MetronomeState.Stopped) return false;
 
