@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/services.dart';
 
+
 enum MetronomeState {
   Playing,
   Stopped,
@@ -15,33 +16,112 @@ class MetronomeControl extends StatefulWidget {
   MetronomeControlState createState() => new MetronomeControlState();
 }
 
-class MetronomeControlState extends State<MetronomeControl> with SingleTickerProviderStateMixin {
-  final int minTempo = 30;
-  final int maxTempo = 220;
-  static int _tempo = 60;
+class MetronomeControlState extends State<MetronomeControl> {
 
-  int lastFrameTime=0;
-  int frameCount=0;
+  final _maxRotationAngle = 0.26;
+  final _minTempo = 30;
+  final _maxTempo = 220;
+
+  List<int> _tapTimes = List();
+
+  int _tempo = 60;
+
   bool _bobPanning = false;
 
   MetronomeState _metronomeState = MetronomeState.Stopped;
-
+  int _lastFrameTime=0;
   Timer _tickTimer;
-  List<int> _tapTimes = List();
+  Timer _frameTimer;
   int _lastEvenTick;
   bool _lastTickWasEven;
   int _tickInterval;
-  Timer _frameTimer;
-  double _rotationAngle=0;
-  double _maxRotationAngle = 0.26;
 
-  MetronomeControlState(); 
-  
+  double _rotationAngle=0;
+
+  MetronomeControlState();
+
   @override
   void dispose() {
     _frameTimer?.cancel();
     _tickTimer?.cancel();
     super.dispose();
+  }
+
+
+  void _start() {
+    _metronomeState = MetronomeState.Playing;
+
+    double bps = _tempo/60;
+    _tickInterval = 1000~/bps;
+    _lastEvenTick = DateTime.now().millisecondsSinceEpoch;
+    _tickTimer = new Timer.periodic(new Duration(milliseconds: _tickInterval), _onTick);
+    _animationLoop();
+
+    SystemSound.play(SystemSoundType.click);
+
+    if (mounted) setState((){});
+  }
+
+  void _animationLoop() {
+    _frameTimer?.cancel();
+    int thisFrameTime = DateTime.now().millisecondsSinceEpoch;
+
+    if (_metronomeState == MetronomeState.Playing || _metronomeState == MetronomeState.Stopping) {
+      int delay = max(0,_lastFrameTime + 17 - DateTime.now().millisecondsSinceEpoch);
+      _frameTimer = new Timer(new Duration(milliseconds: delay), ()  { _animationLoop();});
+    }
+    else {
+      _rotationAngle =0;
+    }
+    if (mounted) setState(() {});
+    _lastFrameTime = thisFrameTime;
+  }
+
+  void _onTick(Timer t) {
+    _lastTickWasEven = t.tick%2 ==0;
+    if (_lastTickWasEven) _lastEvenTick = DateTime.now().millisecondsSinceEpoch;
+
+    if (_metronomeState == MetronomeState.Playing) {
+      SystemSound.play(SystemSoundType.click);
+    }
+    else if (_metronomeState == MetronomeState.Stopping) {
+      _tickTimer?.cancel();
+      _metronomeState = MetronomeState.Stopped;
+    }
+  }
+
+  void _stop() {
+    _metronomeState = MetronomeState.Stopping;
+    if (mounted) setState((){});
+  }
+
+
+  void _tap() {
+    if (_metronomeState != MetronomeState.Stopped) return;
+    int now= DateTime.now().millisecondsSinceEpoch;
+    _tapTimes.add(now);
+    if (_tapTimes.length>3) {
+      _tapTimes.removeAt(0);
+    }
+    int tapCount=0;
+    int tapIntervalSum=0;
+
+    for (int i = _tapTimes.length-1; i>=1; i--) {
+
+      int currentTapTime = _tapTimes[i];
+      int previousTapTime = _tapTimes[i-1];
+      int currentInterval = currentTapTime - previousTapTime;
+      if (currentInterval > 3000) break;
+
+      tapIntervalSum  += currentInterval;
+      tapCount++;
+    }
+    if (tapCount>0) {
+      int msBetweenTicks = tapIntervalSum ~/ tapCount;
+      double bps = 1000/msBetweenTicks;
+      _tempo = min(max((bps * 60).toInt(), _minTempo),_maxTempo);
+    }
+    if(mounted) setState(() {});
   }
 
 
@@ -85,7 +165,7 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
       end = 0;
       curve = Curves.easeIn;
     }
-    
+
     CurveTween curveTween = CurveTween(curve: curve);
     double easedPercent= curveTween.transform(segmentPercent);
 
@@ -93,125 +173,31 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
     rotationAngle = tween.transform(easedPercent);
 
     return rotationAngle;
-
   }
-
-  void _animationLoop() {
-    _frameTimer?.cancel();
-    int thisFrameTime = DateTime.now().millisecondsSinceEpoch;
-
-    if (_metronomeState == MetronomeState.Playing || _metronomeState == MetronomeState.Stopping) {
-      int delay = max(0,lastFrameTime + 17 - DateTime.now().millisecondsSinceEpoch);
-      _frameTimer = new Timer(new Duration(milliseconds: delay), ()  { _animationLoop();});
-    }
-    else {
-      _rotationAngle =0;
-    }
-    if (mounted) setState(() {});
-    lastFrameTime = thisFrameTime;
-  }
-
-  void _startTimers()
-  {
-    double bps = _tempo/60;
-    _tickInterval = 1000~/bps;
-    _lastEvenTick = DateTime.now().millisecondsSinceEpoch;
-    _tickTimer = new Timer.periodic(new Duration(milliseconds: _tickInterval), _onTick);
-    _animationLoop();
-  }
-
-
- void _start() {
-    _metronomeState = MetronomeState.Playing;
-    _startTimers();
-    
-    SystemSound.play(SystemSoundType.click);
-
-    if (mounted) setState((){});
-  }
-
-  void _stop() {
-    _metronomeState = MetronomeState.Stopping;
-    if (mounted) setState((){});
-  }
-
-  void _onTick(Timer t) {
-    _lastTickWasEven = t.tick%2 ==0;
-    if (_lastTickWasEven) _lastEvenTick = DateTime.now().millisecondsSinceEpoch;
-
-    if (_metronomeState == MetronomeState.Playing) {
-      SystemSound.play(SystemSoundType.click);
-    }
-    else if (_metronomeState == MetronomeState.Stopping) {
-      _tickTimer?.cancel();
-      _metronomeState = MetronomeState.Stopped;
-    }
-  }
-
-
-  void _tap() {
-    if (_metronomeState != MetronomeState.Stopped) return;
-    int now= DateTime.now().millisecondsSinceEpoch;
-    _tapTimes.add(now);
-    if (_tapTimes.length>3) {
-      _tapTimes.removeAt(0);
-    }
-    int tapCount=0;
-    int tapIntervalSum=0;
-
-    for (int i = _tapTimes.length-1; i>=1; i--) {
-
-      int currentTapTime = _tapTimes[i];
-      int previousTapTime = _tapTimes[i-1];
-      int currentInterval = currentTapTime - previousTapTime;
-      if (currentInterval > 3000) break;
-
-      tapIntervalSum  += currentInterval;
-      tapCount++;
-    }
-    if (tapCount>0) {
-      int msBetweenTicks = tapIntervalSum ~/ tapCount;
-      double bps = 1000/msBetweenTicks;
-      _tempo = min(max((bps * 60).toInt(), minTempo),maxTempo);
-    }
-    if(mounted) setState(() {});
-  }
-
 
   @override
   Widget build(BuildContext context) {
     _rotationAngle = _getRotationAngle();
-
     return Column(
         mainAxisSize: MainAxisSize.max,
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          SizedBox(height:20),
-          Expanded (
+          SizedBox(height: 20),
+          Expanded(
               child: LayoutBuilder(
-                  builder: (context,constraints) {
+                  builder: (context, constraints) {
                     double aspectRatio = 1.5; // height:width
-                    double width;
-                    double height;
-                    if (constraints.maxHeight>=constraints.maxWidth * aspectRatio) {
-                      // we are constrained by available width
-                      width = constraints.maxWidth;
-                      height = width * aspectRatio;
-                    }
-                    else {
-                      // we are constrained by available height
-                      height = constraints.maxHeight;
-                      width = height / aspectRatio;
-                    }
+                    double width = (constraints.maxHeight >= constraints.maxWidth * aspectRatio) ? constraints.maxWidth : constraints.maxHeight / aspectRatio;
+                    double height = (constraints.maxHeight >= constraints.maxWidth * aspectRatio) ? width * aspectRatio : constraints.maxHeight;
 
-                    return _wand(width,height);
+                    return _wand(width, height);
                   }
               )
           ),
-          SizedBox(height:20),
+          Container(height: 20),
           Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children:[
+              children: [
                 RaisedButton(
                     color: Colors.purple,
                     textColor: Colors.white,
@@ -228,18 +214,16 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
                 )
               ]
           ),
-          SizedBox(height:20),
+          SizedBox(height: 20),
         ]
     );
   }
-
 
   Widget _wand(double width, double height) {
     return Container(
       width: width,
       height: height,
       child: GestureDetector(
-
         onPanDown: (dragDownDetails) {
           RenderBox box = context.findRenderObject();
           Offset localPosition = box.globalToLocal(dragDownDetails.globalPosition);
@@ -261,12 +245,12 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
 
         child: CustomPaint (
           foregroundPainter: new MetronomeWandPainter(
-            width: width,
-            height: height,
-            tempo: _tempo,
-            rotationAngle : _rotationAngle,
-            minTempo: minTempo,
-            maxTempo: maxTempo,
+              width: width,
+              height: height,
+              tempo: _tempo,
+              minTempo: _minTempo,
+              maxTempo: _maxTempo,
+              rotationAngle: _rotationAngle
           ),
 
           child: InkWell(),
@@ -275,21 +259,21 @@ class MetronomeControlState extends State<MetronomeControl> with SingleTickerPro
     );
 
   }
-
   bool _bobHitTest(double width, double height, Offset localPosition) {
     if (_metronomeState != MetronomeState.Stopped) return false;
 
     Offset translatedLocalPos = localPosition.translate(-width/2, -height * 0.75);
-    WandCoords wandCoords = WandCoords(width, height, _tempo, minTempo, maxTempo);
+    WandCoords wandCoords = WandCoords(width, height, _tempo, _minTempo, _maxTempo);
 
     return ((translatedLocalPos.dy - wandCoords.bobCenter.dy).abs() < height/ 20);
   }
+
   void _bobDragTo(double width, double height, Offset localPosition) {
     Offset translatedLocalPos = localPosition.translate(-width/2, -height * 0.75);
-    WandCoords wandCoords = WandCoords(width, height, _tempo, minTempo, maxTempo);
+    WandCoords wandCoords = WandCoords(width, height, _tempo, _minTempo, _maxTempo);
 
     double bobPercent = (translatedLocalPos.dy - wandCoords.bobMinY) / wandCoords.bobTravel;
-    _tempo = min(maxTempo, max(minTempo,minTempo + (bobPercent * (maxTempo - minTempo)).toInt()));
+    _tempo = min(_maxTempo, max(_minTempo,_minTempo + (bobPercent * (_maxTempo - _minTempo)).toInt()));
     double bps = _tempo/60;
     _tickInterval = 1000~/bps;
 
@@ -309,11 +293,14 @@ class WandCoords {
   double bobMaxY;
   double bobTravel;
 
+  // calculates all coordinates relative to the rotation center and scaled based on height and width.
   WandCoords(double width, double height, int tempo, int minTempo, int maxTempo) {
     rotationCenter  = new Offset(0, 0);
     rotationCenterRadius = width/40;
+
     counterWeightCenter = new Offset(0, height*0.175);
     counterWeightRadius = width/12;
+
     stickTop = new Offset(0, - height * 0.68);
     stickBottom = new Offset(0, height * 0.175);
 
@@ -323,9 +310,7 @@ class WandCoords {
     bobTravel = bobMaxY - bobMinY;
     double tempoPercent = (tempo - minTempo) / (maxTempo-minTempo);
     double bobPercent = tempoPercent;
-
     bobCenter = new Offset(0, bobMinY + (bobTravel * bobPercent));
-
   }
 }
 
@@ -338,12 +323,13 @@ class MetronomeWandPainter extends CustomPainter{
   int maxTempo;
   double rotationAngle;
 
+  static ui.Picture wandPicture;
+
+
   Color _bobTextColor= Colors.white;
   Map <String, Paint> paints;
 
-  static ui.Picture wandPicture;
-
-  MetronomeWandPainter({this.width, this.height, this.tempo, this.rotationAngle, this.minTempo, this.maxTempo});
+  MetronomeWandPainter({this.width, this.height, this.tempo, this.minTempo, this.maxTempo, this.rotationAngle});
 
   _initFillsAndPaints() {
     if (paints == null ) paints = {
@@ -371,38 +357,23 @@ class MetronomeWandPainter extends CustomPainter{
     };
   }
 
-  bool useDoubleBuffer = true; // it is 10X faster than not.
   @override
   void paint(Canvas canvas, Size size) {
-    // No need to optimize this - it is taking less than half a millisecond at the moment in debug mode on device.
-    // it may be worth experimenting to see if a Picture blit lowers the flicker though.
-    //int start = DateTime.now().microsecondsSinceEpoch;
 
-    //int start = DateTime.now().microsecondsSinceEpoch;
     if (paints==null) _initFillsAndPaints();
 
-    if (useDoubleBuffer) {
+    if (wandPicture == null) {
+      // draw unrotated wand on to a picture canvas
+      ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+      Canvas pictureCanvas = new Canvas(pictureRecorder);
 
-      if (wandPicture == null) {
-        // draw unrotated wand on to a picture canvas
-        ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-        Canvas pictureCanvas = new Canvas(pictureRecorder);
-
-        _drawWandOnCanvas(pictureCanvas);
-        wandPicture = pictureRecorder.endRecording();
-      }
-      canvas.translate(width / 2, height * .75);
-      canvas.rotate(rotationAngle);
-      canvas.drawPicture(wandPicture);
-
+      _drawWandOnCanvas(pictureCanvas);
+      wandPicture = pictureRecorder.endRecording();
     }
-    else {
-      // put the canvas origin at the point we want to rotate around
-      canvas.translate(width/2,height *.75);
-      // if playing rotate to the right amount
-      canvas.rotate(rotationAngle);
-      _drawWandOnCanvas(canvas);
-    }
+    canvas.translate(width / 2, height * .75);
+    canvas.rotate(rotationAngle);
+    canvas.drawPicture(wandPicture);
+
   }
 
   _drawWandOnCanvas(Canvas canvas) {
@@ -444,7 +415,6 @@ class MetronomeWandPainter extends CustomPainter{
     canvas.drawPath(bobPath, paints["fillBob"]);
     canvas.drawPath(bobPath, paints["strokeBase"]);
     canvas.drawParagraph(paragraph, paragraphPos);
-
   }
 
   @override
